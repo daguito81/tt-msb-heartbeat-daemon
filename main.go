@@ -25,7 +25,6 @@ const (
 func main() {
 	// Set up Logging
 	// log.Out = os.Stdout
-
 	// FTP
 	log.Info("Creating FTP Topic and Sub")
 	tftp, err := sbmgmt.GetOrBuildTopic(topicNameFTP)
@@ -47,7 +46,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error getting MQTT Sub: %v\n", err)
 	}
-	_, _, _ = tftp, tmqtt, sftp
+	_, _, _, _ = tftp, tmqtt, sftp, smqtt
 	// Database
 	log.Info("Creating Database Connection")
 	db, err := dbmgmt.ConnectDatabase()
@@ -55,7 +54,9 @@ func main() {
 		log.Fatalf("Error connecting to Database: %v\n", err)
 	}
 	_ = db
-	receiveMsgs(smqtt)
+
+	// MAIN STUFF HERE
+	// receiveMsgs(smqtt)
 
 }
 
@@ -102,6 +103,7 @@ func processFunc(ctx context.Context, msg *servicebus.Message) error {
 		reportFileProcessed string
 		currentTime         string
 		msgRaw              bool
+		msgCode             string
 	}
 
 	s := msg.Data
@@ -124,13 +126,13 @@ func processFunc(ctx context.Context, msg *servicebus.Message) error {
 		reportFileProcessed: reportFileResult,
 		currentTime:         time.Now().UTC().Format("2006-01-02 15:04:05"),
 		msgRaw:              metaMap["is_raw"].(bool),
+		msgCode:             metaMap["message_code"].(string),
 	}
 
 	if !m.msgRaw {
+		// fmt.Printf("%v/n", metaMap)
 		fmt.Printf("Msg: ClientCode = %s, DeviceCode = %s, ReportFileDate: %s CurrentTime = %s, Raw: %v\n",
 			m.clientCode, m.deviceCode, m.reportFileProcessed, m.currentTime, m.msgRaw)
 	}
 	return msg.Complete(ctx)
 }
-
-// func updateDB(clientCode string, deviceCode string)
