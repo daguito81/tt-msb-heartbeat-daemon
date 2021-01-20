@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -20,11 +19,8 @@ const (
 	subName       string = "dagotest"
 )
 
-// var log = logrus.New()
-
 func main() {
-	// Set up Logging
-	// log.Out = os.Stdout
+
 	// FTP
 	log.Info("Creating FTP Topic and Sub")
 	tftp, err := sbmgmt.GetOrBuildTopic(topicNameFTP)
@@ -56,30 +52,8 @@ func main() {
 	_ = db
 
 	// MAIN STUFF HERE
-	// receiveMsgs(smqtt)
+	receiveMsgs(smqtt)
 
-}
-
-func testDatabase(db *sql.DB) {
-	// Test Query
-	ctx := context.Background()
-	tsql := fmt.Sprintf("SELECT * FROM test_table")
-	rows, err := db.QueryContext(ctx, tsql)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var firstName, lastName string
-		var id, age int
-
-		if err := rows.Scan(&id, &firstName, &lastName, &age); err != nil {
-			log.Fatalln("Error reading row")
-		}
-		fmt.Printf("ID: %d, FirstName: %s, LastName: %s, Age: %d\n", id, firstName, lastName, age)
-
-	}
 }
 
 func receiveMsgs(sub *servicebus.Subscription) {
@@ -113,7 +87,7 @@ func processFunc(ctx context.Context, msg *servicebus.Message) error {
 	}
 	metaMap := raw["metadata"].(map[string]interface{})
 
-	reportFileParsed, err := time.Parse("20060102150405", string(metaMap["reportfile_date"].(string)))
+	reportFileParsed, err := time.Parse("20060102150405", metaMap["reportfile_date"].(string))
 
 	if err != nil {
 		return err

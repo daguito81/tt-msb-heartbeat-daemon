@@ -84,7 +84,8 @@ func UpsertDevice(db *sql.DB, msg *struct {
 	if err != nil {
 		return err
 	}
-	//TODO Implement This
+
+	// TODO Implement This
 	if t > 0 {
 		// Update
 	} else {
@@ -94,6 +95,30 @@ func UpsertDevice(db *sql.DB, msg *struct {
 }
 
 func insertDevice(db *sql.DB, clientCode string, deviceCode string, msgCode string) error {
-	//TODO Implement This
+	// TODO Implement This
 	return nil
+}
+
+func testDatabase(db *sql.DB) {
+	// Test Query
+	ctx := context.Background()
+	tsql := fmt.Sprintf("SELECT * FROM test_table")
+	rows, err := db.QueryContext(ctx, tsql)
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	for rows.Next() {
+		var firstName, lastName string
+		var id, age int
+
+		if err := rows.Scan(&id, &firstName, &lastName, &age); err != nil {
+			log.Fatalln("Error reading row")
+		}
+		fmt.Printf("ID: %d, FirstName: %s, LastName: %s, Age: %d\n", id, firstName, lastName, age)
+
+	}
+	if err := rows.Close(); err != nil {
+		log.Fatalln("Error closing rows")
+	}
 }
