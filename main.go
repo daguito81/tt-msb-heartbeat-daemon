@@ -16,6 +16,7 @@ import (
 const (
 	topicNameFTP  string = "ftp_topic"
 	topicNameMQTT string = "mqtt_topic"
+	topicNameAPI  string = "api_topic"
 	subName       string = "dagotest"
 )
 
@@ -23,7 +24,7 @@ func main() {
 
 	// FTP
 	log.Info("Creating FTP Topic and Sub")
-	tftp, err := sbmgmt.GetOrBuildTopic(topicNameFTP)
+	_, err := sbmgmt.GetOrBuildTopic(topicNameFTP)
 	if err != nil {
 		log.Fatalf("Error getting FTP Topic: %v\n", err)
 	}
@@ -34,7 +35,7 @@ func main() {
 
 	// MQTT
 	log.Info("Creating MQTT Topic and Sub")
-	tmqtt, err := sbmgmt.GetOrBuildTopic(topicNameMQTT)
+	_, err = sbmgmt.GetOrBuildTopic(topicNameMQTT)
 	if err != nil {
 		log.Fatalf("Error getting MQTT Topic: %v\n", err)
 	}
@@ -42,23 +43,46 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error getting MQTT Sub: %v\n", err)
 	}
-	_, _, _, _ = tftp, tmqtt, sftp, smqtt
+
+	// API
+	log.Info("Creating API Topic and Sub")
+	_, err = sbmgmt.GetOrBuildTopic(topicNameAPI)
+	if err != nil {
+		log.Fatalf("Error getting API Topic: %v\n", err)
+	}
+	sapi, err := sbmgmt.GetOrBuildSubscription(subName, topicNameAPI)
+	if err != nil {
+		log.Fatalf("Error getting API Sub: %v\n", err)
+	}
+
 	// Database
 	log.Info("Creating Database Connection")
-	db, err := dbmgmt.ConnectDatabase()
-	if err != nil {
+	if err := dbmgmt.ConnectDatabase(); err != nil {
 		log.Fatalf("Error connecting to Database: %v\n", err)
 	}
-	_ = db
 
 	// MAIN STUFF HERE
-	receiveMsgs(smqtt)
+	ftpChan := make(chan bool)
+	mqttChan := make(chan bool)
+	apiChan := make(chan bool)
+	go receiveMsgs(smqtt, mqttChan)
+	go receiveMsgs(sftp, ftpChan)
+	go receiveMsgs(sapi, apiChan)
+	for {
+		if err := dbmgmt.UpdateHeartbeat(); err != nil {
+			log.Error(err)
+			break
+		}
+		time.Sleep(5 * time.Second)
+	}
+	<-apiChan
+	<-ftpChan
+	<-mqttChan
 
 }
 
-func receiveMsgs(sub *servicebus.Subscription) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+func receiveMsgs(sub *servicebus.Subscription, c chan bool) {
+	ctx := context.Background()
 
 	// Change this from processFunc to printFunc
 	var processMessage servicebus.HandlerFunc = processFunc
@@ -66,19 +90,12 @@ func receiveMsgs(sub *servicebus.Subscription) {
 	log.Info("Starting to Receive Messages")
 	if err := sub.Receive(ctx, processMessage); err != nil {
 		log.Error("Error processing message:", err)
+		c <- true
 	}
 
 }
 
 func processFunc(ctx context.Context, msg *servicebus.Message) error {
-	type sbMsg struct {
-		clientCode          string
-		deviceCode          string
-		reportFileProcessed string
-		currentTime         string
-		msgRaw              bool
-		msgCode             string
-	}
 
 	s := msg.Data
 	var raw map[string]interface{}
@@ -94,19 +111,20 @@ func processFunc(ctx context.Context, msg *servicebus.Message) error {
 	}
 	reportFileResult := reportFileParsed.Format("2006-01-02 15:04:05")
 
-	m := sbMsg{
-		clientCode:          metaMap["client_code"].(string),
-		deviceCode:          metaMap["device_code"].(string),
-		reportFileProcessed: reportFileResult,
-		currentTime:         time.Now().UTC().Format("2006-01-02 15:04:05"),
-		msgRaw:              metaMap["is_raw"].(bool),
-		msgCode:             metaMap["message_code"].(string),
+	m := dbmgmt.SbMsg{
+		ClientCode:          metaMap["client_code"].(string),
+		DeviceCode:          metaMap["device_code"].(string),
+		ReportFileProcessed: reportFileResult,
+		CurrentTime:         time.Now().UTC().Format("2006-01-02 15:04:05"),
+		MsgRaw:              metaMap["is_raw"].(bool),
+		MsgCode:             metaMap["message_code"].(string),
 	}
 
-	if !m.msgRaw {
+	if !m.MsgRaw {
 		// fmt.Printf("%v/n", metaMap)
 		fmt.Printf("Msg: ClientCode = %s, DeviceCode = %s, ReportFileDate: %s CurrentTime = %s, Raw: %v\n",
-			m.clientCode, m.deviceCode, m.reportFileProcessed, m.currentTime, m.msgRaw)
+			m.ClientCode, m.DeviceCode, m.ReportFileProcessed, m.CurrentTime, m.MsgRaw)
+		dbmgmt.UpsertDevice(m)
 	}
 	return msg.Complete(ctx)
 }
