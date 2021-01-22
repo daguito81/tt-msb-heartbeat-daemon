@@ -124,7 +124,10 @@ func processFunc(ctx context.Context, msg *servicebus.Message) error {
 		// fmt.Printf("%v/n", metaMap)
 		fmt.Printf("Msg: ClientCode = %s, DeviceCode = %s, ReportFileDate: %s CurrentTime = %s, Raw: %v\n",
 			m.ClientCode, m.DeviceCode, m.ReportFileProcessed, m.CurrentTime, m.MsgRaw)
-		dbmgmt.UpsertDevice(m)
+		if err := dbmgmt.UpsertDevice(m); err != nil {
+			log.Error("Msg Processing Error! ", err)
+			return err
+		}
 	}
 	return msg.Complete(ctx)
 }

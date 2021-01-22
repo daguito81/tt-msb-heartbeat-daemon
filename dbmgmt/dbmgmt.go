@@ -27,8 +27,8 @@ type SbMsg struct {
 // db Database connection to be exported
 var db *sql.DB
 
-// ConnectDatabase connects to the database based on the envinronment variables
-// DB_SERVER, DB_USER, DB_PASSWORd, DB_DATABASE
+// ConnectDatabase connects to the database based on the environment variables
+// DB_SERVER, DB_USER, DB_PASSWORD, DB_DATABASE
 func ConnectDatabase() error {
 	if err := godotenv.Load(); err != nil {
 		return err
@@ -88,18 +88,21 @@ func countRowsOfDevice(clientCode string, deviceCode string, msgCode string) (in
 // If it already exists, it will update the lastPing time
 // If it doesn't exist, it will insert a new row to DB
 func UpsertDevice(msg SbMsg) error {
-	log.Debug("Starging Upsert Device")
+	log.Debug("Starting Upsert Device")
 	t, err := countRowsOfDevice(msg.ClientCode, msg.DeviceCode, msg.MsgCode)
 	if err != nil {
 		log.Fatal("Error Counting rows")
 		return err
 	}
 
-	// TODO Implement This
 	if t > 0 {
-		updateDevice(msg.ClientCode, msg.DeviceCode, msg.MsgCode, msg.CurrentTime)
+		if err := updateDevice(msg.ClientCode, msg.DeviceCode, msg.MsgCode, msg.CurrentTime); err != nil {
+			return err
+		}
 	} else {
-		insertDevice(msg.ClientCode, msg.DeviceCode, msg.MsgCode, msg.CurrentTime)
+		if err := insertDevice(msg.ClientCode, msg.DeviceCode, msg.MsgCode, msg.CurrentTime); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -158,20 +161,17 @@ func updateDevice(clientCode string, deviceCode string, msgCode string, lastPing
 	}
 	defer stmt.Close()
 
-	result, err := stmt.ExecContext(
+	_, err = stmt.ExecContext(
 		ctx,
 		sql.Named("client_code", clientCode),
 		sql.Named("device_code", deviceCode),
 		sql.Named("msg_code", msgCode),
 		sql.Named("last_ping", lastPing),
 	)
-	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return err
 	}
-	if rowsAffected != 1 {
-		log.Error("Number of updates is not 1")
-	}
+
 	return nil
 
 }
@@ -195,11 +195,10 @@ func UpdateHeartbeat() error {
 	}
 	defer stmt.Close()
 
-	result, err := stmt.ExecContext(ctx)
-
-	_, err = result.RowsAffected()
+	_, err = stmt.ExecContext(ctx)
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
