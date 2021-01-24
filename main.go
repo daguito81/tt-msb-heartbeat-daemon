@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"sync"
 	"time"
 
@@ -22,7 +21,10 @@ const (
 	nw            int    = 5
 )
 
+var counter int = 0
+
 func main() {
+	log.SetLevel(log.InfoLevel)
 
 	// Async Setup
 	clientsFTP := make(chan *servicebus.Subscription, nw)
@@ -104,6 +106,7 @@ func receiveMsgs(sub *servicebus.Subscription, f string) {
 
 func processFunc(ctx context.Context, msg *servicebus.Message) error {
 
+	counter++
 	s := msg.Data
 	var raw map[string]interface{}
 	if err := json.Unmarshal(s, &raw); err != nil {
@@ -130,8 +133,13 @@ func processFunc(ctx context.Context, msg *servicebus.Message) error {
 
 	if !m.MsgRaw {
 		// fmt.Printf("%v/n", metaMap)
-		fmt.Printf("Msg: ClientCode = %s\t DeviceCode = %s\t FamilyName = %s\t Raw: %v\n",
-			m.ClientCode, m.DeviceCode, m.FamilyName, m.MsgRaw)
+		log.WithFields(log.Fields{
+			"family":     m.FamilyName,
+			"clientCode": m.ClientCode,
+			"deviceCode": m.DeviceCode,
+			"msgCode":    m.MsgCode,
+			"msg#":       counter,
+		}).Infof("ReportDate: %s", m.ReportFileProcessed)
 		if err := dbmgmt.UpsertDevice(m); err != nil {
 			log.Error("Msg Processing Error! ", err)
 			return err
