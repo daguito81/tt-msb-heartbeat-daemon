@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"os"
 	"sync"
 	"time"
 
@@ -21,11 +23,17 @@ const (
 	nw            int    = 5
 )
 
-var counter int = 0
+var counter = 0
 
 func main() {
 	log.SetLevel(log.InfoLevel)
-
+	file, err := os.OpenFile("sbdaemon.log", os.O_CREATE|os.O_WRONLY, 0666)
+	if err != nil {
+		log.Warn("Failed to log to file, using default stderr")
+	} else {
+		mw := io.MultiWriter(os.Stdout, file)
+		log.SetOutput(mw)
+	}
 	// Async Setup
 	clientsFTP := make(chan *servicebus.Subscription, nw)
 	clientsMQTT := make(chan *servicebus.Subscription, nw)
