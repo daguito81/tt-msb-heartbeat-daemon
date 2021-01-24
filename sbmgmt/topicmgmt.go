@@ -2,10 +2,10 @@ package sbmgmt
 
 import (
 	"context"
-	"log"
 	"time"
 
 	servicebus "github.com/Azure/azure-service-bus-go"
+	log "github.com/sirupsen/logrus"
 )
 
 // GetOrBuildTopic creates a topic and returns the client or error
@@ -79,18 +79,22 @@ func GetOrBuildSubscription(subName string, topicName string) (*servicebus.Subsc
 	}
 	se, err := sm.Get(ctx, subName)
 	if err != nil && !servicebus.IsErrNotFound(err) {
+		log.Errorf("ERROR: Getting the current subscription: %s", subName)
 		return nil, err
 	}
 	// In case of empty, create subscription
 	if se == nil {
+		log.Info("Creating New Subscription")
 		_, err := sm.Put(ctx, subName)
 		if err != nil {
+			log.Error("ERROR: Creating New subscription")
 			return nil, err
 		}
 	}
 	// Create sub client
 	s, err := sm.Topic.NewSubscription(subName)
 	if err != nil {
+		log.Error("Error creating subscription client")
 		return nil, err
 	}
 	return s, nil

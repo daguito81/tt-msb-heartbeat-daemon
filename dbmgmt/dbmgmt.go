@@ -22,6 +22,7 @@ type SbMsg struct {
 	CurrentTime         string
 	MsgRaw              bool
 	MsgCode             string
+	FamilyName          string
 }
 
 // db Database connection to be exported
@@ -52,6 +53,7 @@ func ConnectDatabase() error {
 	ctx := context.Background()
 
 	if err := db.PingContext(ctx); err != nil {
+		log.Error("Connect Database Ping Failed")
 		return err
 	}
 
@@ -79,6 +81,7 @@ func countRowsOfDevice(clientCode string, deviceCode string, msgCode string) (in
 	log.Debug("Starting Scan")
 	var total int
 	if err := rows.Scan(&total); err != nil {
+		log.Error("Error scanning Count Rows")
 		return -1, err
 	}
 	return total, nil
@@ -97,10 +100,12 @@ func UpsertDevice(msg SbMsg) error {
 
 	if t > 0 {
 		if err := updateDevice(msg.ClientCode, msg.DeviceCode, msg.MsgCode, msg.CurrentTime); err != nil {
+			log.Error("Failed Update DB")
 			return err
 		}
 	} else {
 		if err := insertDevice(msg.ClientCode, msg.DeviceCode, msg.MsgCode, msg.CurrentTime); err != nil {
+			log.Error("Failed Insert DB")
 			return err
 		}
 	}
@@ -124,20 +129,19 @@ func insertDevice(clientCode string, deviceCode string, msgCode string, lastPing
 	}
 	defer stmt.Close()
 
-	row := stmt.QueryRowContext(
+	log.Info("Inserting New Device")
+	_, err = stmt.ExecContext(
 		ctx,
 		sql.Named("client_code", clientCode),
 		sql.Named("device_code", deviceCode),
 		sql.Named("last_ping", lastPing),
 		sql.Named("msg_code", msgCode),
 	)
-
-	var result interface{}
-
-	if err := row.Scan(&result); err != nil {
-		return err
+	if err != nil {
+		log.Error("Error executing insert")
 	}
-	log.Infof("Row inserted - Client: %s Device: %s", clientCode, deviceCode)
+
+	log.Infof("Row inserted - Client: %s Device: %s Msg: %s", clientCode, deviceCode, msgCode)
 	return nil
 }
 
@@ -157,6 +161,7 @@ func updateDevice(clientCode string, deviceCode string, msgCode string, lastPing
 	`
 	stmt, err := db.Prepare(tsql)
 	if err != nil {
+		log.Error("Error Preparing SQL Statement")
 		return err
 	}
 	defer stmt.Close()

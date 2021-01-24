@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	servicebus "github.com/Azure/azure-service-bus-go"
@@ -18,42 +19,29 @@ const (
 	topicNameMQTT string = "mqtt_topic"
 	topicNameAPI  string = "api_topic"
 	subName       string = "dagotest"
+	nw            int    = 5
 )
 
 func main() {
 
+	// Async Setup
+	clientsFTP := make(chan *servicebus.Subscription, nw)
+	clientsMQTT := make(chan *servicebus.Subscription, nw)
+	clientsAPI := make(chan *servicebus.Subscription, nw)
+
+	var wgFTP, wgAPI, wgMQTT sync.WaitGroup
+
 	// FTP
-	log.Info("Creating FTP Topic and Sub")
-	_, err := sbmgmt.GetOrBuildTopic(topicNameFTP)
-	if err != nil {
-		log.Fatalf("Error getting FTP Topic: %v\n", err)
-	}
-	sftp, err := sbmgmt.GetOrBuildSubscription(subName, topicNameFTP)
-	if err != nil {
-		log.Fatalf("Error getting FTP Sub: %v\n", err)
-	}
+	createSBClient("FTP", topicNameFTP, &wgFTP, clientsFTP)
+	wgFTP.Wait()
 
 	// MQTT
-	log.Info("Creating MQTT Topic and Sub")
-	_, err = sbmgmt.GetOrBuildTopic(topicNameMQTT)
-	if err != nil {
-		log.Fatalf("Error getting MQTT Topic: %v\n", err)
-	}
-	smqtt, err := sbmgmt.GetOrBuildSubscription(subName, topicNameMQTT)
-	if err != nil {
-		log.Fatalf("Error getting MQTT Sub: %v\n", err)
-	}
+	createSBClient("MQTT", topicNameMQTT, &wgMQTT, clientsMQTT)
+	wgMQTT.Wait()
 
 	// API
-	log.Info("Creating API Topic and Sub")
-	_, err = sbmgmt.GetOrBuildTopic(topicNameAPI)
-	if err != nil {
-		log.Fatalf("Error getting API Topic: %v\n", err)
-	}
-	sapi, err := sbmgmt.GetOrBuildSubscription(subName, topicNameAPI)
-	if err != nil {
-		log.Fatalf("Error getting API Sub: %v\n", err)
-	}
+	createSBClient("API", topicNameAPI, &wgAPI, clientsAPI)
+	wgAPI.Wait()
 
 	// Database
 	log.Info("Creating Database Connection")
@@ -62,12 +50,18 @@ func main() {
 	}
 
 	// MAIN STUFF HERE
-	ftpChan := make(chan bool)
-	mqttChan := make(chan bool)
-	apiChan := make(chan bool)
-	go receiveMsgs(smqtt, mqttChan)
-	go receiveMsgs(sftp, ftpChan)
-	go receiveMsgs(sapi, apiChan)
+
+	for i := 0; i < nw; i++ {
+		clientFTP := <-clientsFTP
+		clientMQTT := <-clientsMQTT
+		clientAPI := <-clientsAPI
+		go receiveMsgs(clientFTP, "FTP")
+		go receiveMsgs(clientMQTT, "MQTT")
+		go receiveMsgs(clientAPI, "API")
+	}
+	close(clientsFTP)
+	close(clientsMQTT)
+	close(clientsAPI)
 	for {
 		if err := dbmgmt.UpdateHeartbeat(); err != nil {
 			log.Error(err)
@@ -75,22 +69,35 @@ func main() {
 		}
 		time.Sleep(30 * time.Second)
 	}
-	<-apiChan
-	<-ftpChan
-	<-mqttChan
 
 }
 
-func receiveMsgs(sub *servicebus.Subscription, c chan bool) {
+func createSBClient(f string, topicName string, wg *sync.WaitGroup, c chan *servicebus.Subscription) {
+	log.Infof("Creating %s Sub and Clients", f)
+	for i := 0; i < nw; i++ {
+		log.Infof("Creating Client for %s", f)
+		wg.Add(1)
+		go func(i int, wg *sync.WaitGroup) {
+			s, err := sbmgmt.GetOrBuildSubscription(subName, topicName)
+			if err != nil {
+				log.Fatalf("Error getting %s Sub: %v\n", f, err)
+			}
+			log.Infof("Created %s Sub Client: %d", f, i)
+			c <- s
+			wg.Done()
+
+		}(i, wg)
+	}
+}
+
+func receiveMsgs(sub *servicebus.Subscription, f string) {
 	ctx := context.Background()
 
-	// Change this from processFunc to printFunc
 	var processMessage servicebus.HandlerFunc = processFunc
 
-	log.Info("Starting to Receive Messages")
+	log.Infof("Starting to Receive Messages for %s", f)
 	if err := sub.Receive(ctx, processMessage); err != nil {
 		log.Error("Error processing message:", err)
-		c <- true
 	}
 
 }
@@ -118,15 +125,17 @@ func processFunc(ctx context.Context, msg *servicebus.Message) error {
 		CurrentTime:         time.Now().UTC().Format("2006-01-02 15:04:05"),
 		MsgRaw:              metaMap["is_raw"].(bool),
 		MsgCode:             metaMap["message_code"].(string),
+		FamilyName:          metaMap["family_name"].(string),
 	}
 
 	if !m.MsgRaw {
 		// fmt.Printf("%v/n", metaMap)
-		fmt.Printf("Msg: ClientCode = %s, DeviceCode = %s, ReportFileDate: %s CurrentTime = %s, Raw: %v\n",
-			m.ClientCode, m.DeviceCode, m.ReportFileProcessed, m.CurrentTime, m.MsgRaw)
+		fmt.Printf("Msg: ClientCode = %s\t DeviceCode = %s\t FamilyName = %s\t Raw: %v\n",
+			m.ClientCode, m.DeviceCode, m.FamilyName, m.MsgRaw)
 		if err := dbmgmt.UpsertDevice(m); err != nil {
 			log.Error("Msg Processing Error! ", err)
 			return err
+
 		}
 	}
 	return msg.Complete(ctx)
