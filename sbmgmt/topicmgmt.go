@@ -83,9 +83,13 @@ func GetOrBuildSubscription(subName string, topicName string) (*servicebus.Subsc
 		return nil, err
 	}
 	// In case of empty, create subscription
+	var lockDuration = time.Minute
+	var msgDuration = 12 * time.Hour
 	if se == nil {
 		log.Info("Creating New Subscription")
-		_, err := sm.Put(ctx, subName)
+		_, err := sm.Put(ctx, subName,
+			servicebus.SubscriptionWithMessageTimeToLive(&msgDuration),
+			servicebus.SubscriptionWithLockDuration(&lockDuration))
 		if err != nil {
 			log.Error("ERROR: Creating New subscription")
 			return nil, err
